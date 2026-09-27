@@ -1,0 +1,7 @@
+# dados e artefatos locais - nunca sobem pro GitHub
+*.db
+dist/
+build/
+__pycache__/
+*.spec
+.streamlit/secrets.toml
