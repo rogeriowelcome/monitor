@@ -27,6 +27,9 @@ for tabela in TABELAS:
     if not linhas:
         print(tabela, "- vazia")
         continue
+    if tabela in nucleo.TABELAS_USUARIO and "usuario" not in cols:
+        cols.append("usuario")
+        linhas = [tuple(l) + ("local",) for l in linhas]
     ph = ", ".join(["%s"] * len(cols))
     cur.executemany("INSERT INTO {} ({}) VALUES ({}) ON CONFLICT DO NOTHING".format(
         tabela, ", ".join(cols), ph), linhas)

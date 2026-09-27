@@ -1303,16 +1303,11 @@ def atualizar_alertas():
 
 def verificar_alertas(ticker, preco_atual):
     disparados = []
-    conexao = conectar()
-    try:
-        alertas = conexao.execute("SELECT * FROM alertas WHERE ticker = ? AND ativo = 1", (ticker,)).fetchall()
-        for a in alertas:
-            if (a[3] == "acima" and preco_atual >= a[2]) or (a[3] == "abaixo" and preco_atual <= a[2]):
-                disparados.append(a)
-                conexao.execute("UPDATE alertas SET ativo = 0 WHERE id = ?", (a[0],))
-        conexao.commit()
-    finally:
-        conexao.close()
+    alertas = consultar("SELECT id, ticker, preco_alvo, tipo, ativo FROM alertas WHERE ticker = ? AND ativo = 1", (ticker,))
+    for a in alertas:
+        if (a[3] == "acima" and preco_atual >= a[2]) or (a[3] == "abaixo" and preco_atual <= a[2]):
+            disparados.append(a)
+            executar("UPDATE alertas SET ativo = 0 WHERE id = ?", (a[0],))
     if not disparados:
         return
     atualizar_alertas()

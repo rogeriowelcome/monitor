@@ -57,24 +57,70 @@ def layout_dark(fig, altura=380, legenda=True):
     fig.update_yaxes(gridcolor="#232b3d")
     return fig
 
-# ---------------- Senha ----------------
-# SITE_SENHA (ambiente), secrets do Streamlit ou config "senha_site".
-senha_certa = os.environ.get("SITE_SENHA", "")
-if not senha_certa:
+# ---------------- Login ----------------
+
+def _secret(nome, padrao=""):
     try:
-        senha_certa = st.secrets.get("senha", "")
+        return st.secrets.get(nome, padrao)
     except Exception:
-        pass
-if not senha_certa:
-    senha_certa = ler_config("senha_site", "")
-if senha_certa:
-    if st.text_input("Senha de acesso", type="password") != senha_certa:
-        st.stop()
+        return padrao
+
+ADMIN_LOGIN = _secret("admin_login", "")  # seu login vira admin do site
+PIX_CHAVE = _secret("pix_chave", "")
+PIX_VALOR = _secret("pix_valor", "R$ 19,90/mes")
+
+if "usuario" not in st.session_state:
+    st.markdown('<div class="hero"><h1>📈 Monitor de Investimentos</h1>'
+                "<p>Carteira, renda fixa, IR e imposto — tudo num lugar so.</p></div>",
+                unsafe_allow_html=True)
+    aba_entrar, aba_cadastro = st.tabs(["Entrar", "Criar conta (7 dias gratis)"])
+    with aba_entrar:
+        with st.form("login"):
+            login = st.text_input("Usuario")
+            senha = st.text_input("Senha", type="password")
+            if st.form_submit_button("Entrar", type="primary"):
+                usuario = autenticar(login, senha)
+                if usuario:
+                    st.session_state["usuario"] = usuario
+                    st.rerun()
+                else:
+                    st.error("Usuario ou senha incorretos.")
+    with aba_cadastro:
+        with st.form("cadastro"):
+            login2 = st.text_input("Escolha um usuario")
+            senha2 = st.text_input("Escolha uma senha", type="password")
+            senha3 = st.text_input("Repita a senha", type="password")
+            if st.form_submit_button("Criar conta"):
+                if senha2 != senha3:
+                    st.error("As senhas nao conferem.")
+                else:
+                    ok, msg = criar_usuario(login2, senha2)
+                    if ok:
+                        st.success(msg + " Agora entre na aba 'Entrar'.")
+                    else:
+                        st.error(msg)
+    st.stop()
+
+usuario = st.session_state["usuario"]
+definir_usuario(usuario["login"])
+criar_tabelas()  # garante estrutura e semeia a lista de mercado do usuario
+eh_admin = usuario["login"] == ADMIN_LOGIN
+
+if not conta_ativa(usuario) and not eh_admin:
+    st.warning("Seu periodo de teste terminou 😢")
+    st.markdown("Para continuar usando, pague a mensalidade via PIX:")
+    if PIX_CHAVE:
+        st.code(PIX_CHAVE)
+    st.markdown("**Valor:** {} — depois envie o comprovante que sua conta e liberada em ate 24h.".format(PIX_VALOR))
+    if st.button("Sair"):
+        del st.session_state["usuario"]
+        st.rerun()
+    st.stop()
 
 # ---------------- Dados ----------------
 
 @st.cache_data(ttl=300)
-def posicoes_agora():
+def posicoes_agora(_usuario):
     operacoes = listar_operacoes()
     posicoes = calcular_posicoes(operacoes)
     linhas, total, investido = [], 0.0, 0.0
@@ -97,7 +143,7 @@ def posicoes_agora():
 
 
 @st.cache_data(ttl=300)
-def renda_fixa_agora():
+def renda_fixa_agora(_usuario):
     aplicacoes = listar_renda_fixa()
     if not aplicacoes:
         return []
@@ -111,7 +157,7 @@ def renda_fixa_agora():
 
 
 @st.cache_data(ttl=600)
-def evolucao():
+def evolucao(_usuario):
     registros = consultar("SELECT data, valor, investido FROM historico_patrimonio ORDER BY data")
     if not registros:
         return None
@@ -127,7 +173,7 @@ def evolucao():
 
 
 @st.cache_data(ttl=120)
-def mercado_agora():
+def mercado_agora(_usuario):
     resultado = []
     for ticker, nome in listar_mercado():
         cot = cotacao(ticker)
@@ -139,7 +185,7 @@ def mercado_agora():
 
 
 @st.cache_data(ttl=3600)
-def dividendos_12m():
+def dividendos_12m(_usuario):
     operacoes = listar_operacoes()
     posicoes = calcular_posicoes(operacoes)
     linhas = []
@@ -244,25 +290,31 @@ def fig_pizza(por_tipo):
 
 with st.sidebar:
     st.markdown("## 📈 Monitor")
-    st.caption("Seus investimentos em um painel só")
+    st.caption("Logado como **{}**".format(usuario["login"]))
     st.divider()
     if st.button("🔄 Atualizar dados", width="stretch"):
         st.cache_data.clear()
         st.rerun()
     st.caption("Os precos ficam em cache por 5 minutos.")
     st.divider()
-    st.caption("Os dados sao os mesmos do app de desktop.")
+    if st.button("Sair da conta"):
+        del st.session_state["usuario"]
+        st.rerun()
 
 st.markdown('<div class="hero"><h1>Monitor de Investimentos</h1>'
             '<p>Carteira, renda fixa e patrimonio em tempo real</p></div>',
             unsafe_allow_html=True)
 
-aba_carteira, aba_rf, aba_resumo, aba_cotacao, aba_ir, aba_mercado, aba_sim, aba_alertas = st.tabs(
-    ["💼 Carteira", "🏦 Renda Fixa", "📊 Resumo", "💱 Cotação", "🧾 Imposto de Renda",
-     "🌐 Mercado", "🧪 Simulador", "🔔 Alertas"])
+nomes_abas = ["💼 Carteira", "🏦 Renda Fixa", "📊 Resumo", "💱 Cotação", "🧾 Imposto de Renda",
+              "🌐 Mercado", "🧪 Simulador", "🔔 Alertas"]
+if eh_admin:
+    nomes_abas.append("⚙️ Admin")
+abas = st.tabs(nomes_abas)
+aba_carteira, aba_rf, aba_resumo, aba_cotacao, aba_ir, aba_mercado, aba_sim, aba_alertas = abas[:8]
+aba_admin = abas[8] if eh_admin else None
 
-dados = posicoes_agora()
-rf = renda_fixa_agora()
+dados = posicoes_agora(usuario)
+rf = renda_fixa_agora(usuario)
 total_rf = sum(a["resultado"]["liquido"] for a in rf if a.get("resultado"))
 patrimonio = dados["total"] + total_rf
 investido_total = dados["investido"] + sum(a["valor"] for a in rf)
@@ -394,7 +446,7 @@ with aba_rf:
                             st.rerun()
 
 with aba_resumo:
-    evo = evolucao()
+    evo = evolucao(usuario)
     if evo:
         datas = [d for d, v, i in evo["registros"]]
         valores = [v for d, v, i in evo["registros"]]
@@ -479,7 +531,7 @@ with aba_resumo:
         st.dataframe(pd.DataFrame(linhas_reb), width="stretch", hide_index=True)
 
     st.markdown('<div class="secao">Dividendos (12 meses)</div>', unsafe_allow_html=True)
-    divs = dividendos_12m()
+    divs = dividendos_12m(usuario)
     if divs:
         st.dataframe(pd.DataFrame([{"Ativo": d["ticker"],
                                     "Por cota": formatar_preco(d["por_acao"], d["moeda"]),
@@ -528,7 +580,7 @@ with aba_ir:
         st.info("Nenhuma venda registrada ainda.")
 
 with aba_mercado:
-    linhas_m = mercado_agora()
+    linhas_m = mercado_agora(usuario)
     tabela_m = pd.DataFrame([{"Ativo": m["nome"], "Ticker": m["ticker"],
                               "Preço": formatar_preco(m["preco"], m["moeda"]) if m["preco"] else "-",
                               "Variação": formatar_var(m["var"])}
@@ -621,3 +673,27 @@ with aba_alertas:
             st.rerun()
     else:
         st.info("Nenhum alerta cadastrado.")
+
+
+if aba_admin is not None:
+    with aba_admin:
+        st.markdown('<div class="secao">Usuarios cadastrados</div>', unsafe_allow_html=True)
+        usuarios = listar_usuarios()
+        if usuarios:
+            hoje = date.today().isoformat()
+            linhas_u = []
+            for login, criado, ativo_ate in usuarios:
+                status = "admin" if login == ADMIN_LOGIN else ("ativo" if ativo_ate and ativo_ate >= hoje else "vencido")
+                linhas_u.append({"Login": login, "Criado em": criado or "-",
+                                 "Acesso ate": formatar_data(ativo_ate) if ativo_ate else "-",
+                                 "Status": status})
+            st.dataframe(pd.DataFrame(linhas_u), width="stretch", hide_index=True)
+            st.markdown('<div class="secao">Renovar acesso (apos PIX)</div>', unsafe_allow_html=True)
+            c1, c2 = st.columns(2)
+            alvo = c1.selectbox("Usuario", [u[0] for u in usuarios])
+            dias = c2.number_input("Dias", min_value=1, value=30)
+            if st.button("Ativar/Renovar"):
+                nova = renovar_usuario(alvo, dias)
+                st.success("{} liberado ate {}.".format(alvo, formatar_data(nova)))
+        else:
+            st.info("Nenhum usuario cadastrado ainda.")
