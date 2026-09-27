@@ -6,3 +6,4 @@ requests
 matplotlib
 plotly
 psycopg2-binary
+openpyxl
